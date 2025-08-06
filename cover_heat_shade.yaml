@@ -1,0 +1,422 @@
+blueprint:
+  name: Rolladen – Hitze-/Sonnenschutz (optimiert, 2025.07.26)
+  description: >
+    Intelligente Rolladensteuerung für Hitzeschutz. Fährt Rolladen in eine
+    definierte Schattierungsposition wenn:
+      • (Innentemperatur ODER Außentemperatur) über Schwellwert UND
+      • Sonne im definierten Azimutfenster steht UND
+      • Bewölkung unter Grenzwert liegt (optional)
+    Verhindert unnötige Fahrbefehle durch Positions-Abfrage.
+    Unterstützt normale und invertierte Rolladen-Systeme.
+  domain: automation
+  ### ────────── INPUTS ──────────
+  input:
+    enable_boolean:
+      name: Aktivierungsschalter (optional)
+      description: >
+        Schaltet die Automation ein oder aus. Optional, input_boolean auswählen oder leer lassen.
+      default: ""
+      selector:
+        entity:
+          domain: input_boolean
+
+    target_cover:
+      name: Ziel-Rolladen / Bereich
+      description: >
+        Rolladen oder Bereich, der gesteuert wird. (Mehrere auswählbar)
+      selector:
+        target:
+          entity:
+            domain: cover
+
+    invert_position:
+      name: Positionswerte invertieren
+      description: >
+        Aktivieren, wenn 0%/100% bei Ihrem System vertauscht ist. Standard: AUS (0%=zu, 100%=offen).
+      default: false
+      selector:
+        boolean: {}
+
+    indoor_temp:
+      name: Innentemperatursensor
+      description: >
+        Sensor für die Raumtemperatur. Wird zur Hitzeschutz-Prüfung genutzt.
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    outdoor_temp_sensors:
+      name: Außentemperatursensor(en)
+      description: >
+        Sensor(en) für Außentemperatur. Höchster Wert zählt, mehrere möglich.
+        Empfohlen: 1 Sensor für die Außentemperatur oder erstellen einer Gruppe via Helper.
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+          multiple: true
+
+    azimuth_sensor:
+      name: Sonnenazimut-Sensor
+      description: >
+        Sensor für Sonnenstand (Azimut). Standard via Home Assistant: sensor.sun_solar_azimuth.
+      default: sensor.sun_solar_azimuth
+      selector:
+        entity:
+          domain: sensor
+
+    azimuth_start:
+      name: Azimut-Start (°)
+      description: >
+        Startwinkel für das Azimut-Fenster. 0°=Norden, 90°=Osten, 180°=Süden, 270°=Westen.
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 360
+          step: 1
+          unit_of_measurement: "°"
+
+    azimuth_end:
+      name: Azimut-Ende (°)
+      description: >
+        Endwinkel für das Azimut-Fenster. 0°=Norden, 90°=Osten, 180°=Süden, 270°=Westen.
+      default: 215
+      selector:
+        number:
+          min: 0
+          max: 360
+          step: 1
+          unit_of_measurement: "°"
+
+    indoor_threshold:
+      name: Innentemperatur-Schwellwert (°C)
+      description: >
+        Temperatur-Schwellwert für den Innenraum. Überschreitet der Sensor diesen Wert, wird beschattet.
+        Empfohlen: 22-25°C je nach Komfort-Vorliebe.
+      default: 23
+      selector:
+        number:
+          min: 15
+          max: 35
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    indoor_for:
+      name: Verzögerung Innentemperatur (min)
+      description: >
+        So lange muss die Temperatur überschritten sein, bevor reagiert wird. Einheit: Minuten.
+        Empfohlen: >2 Minuten.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 1
+          unit_of_measurement: "min"
+
+    outdoor_threshold:
+      name: Außentemperatur-Schwellwert (°C)
+      description: >
+        Temperatur-Schwellwert für die Außentemperatur. Überschreitet der Sensor diesen Wert, wird beschattet.
+        Empfohlen: 25-30°C je nach Klima und Vorliebe.
+      default: 28
+      selector:
+        number:
+          min: 0
+          max: 50
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    outdoor_for:
+      name: Verzögerung Außentemperatur (min)
+      description: >
+        So lange muss die Außentemperatur überschritten sein, bevor reagiert wird. Einheit: Minuten. Empfohlen: 5-10 Minuten.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 1
+          unit_of_measurement: "min"
+
+    shade_position:
+      name: Schattierungsposition (%)
+      description: >
+        Position in %, auf die der Rolladen bei Hitzeschutz fährt.
+        Empfohlen: 10-30% für leichten Schatten, 0-10% für starken Schatten.
+        (Höhere Werte lassen mehr Licht durch.)
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 5
+          unit_of_measurement: "%"
+
+    cloudiness_sensor:
+      name: Bewölkungssensor (optional)
+      description: >
+        Sensor für Bewölkung in %. Optional, leer lassen wenn nicht genutzt.
+        Beispiele: "sensor.weather_cloud_coverage" oder "sensor.openweathermap_clouds"
+        Lassen Sie leer, wenn Sie keine Bewölkungsprüfung wünschen.
+        Bei starker Bewölkung wird der Rolladen nicht heruntergefahren.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+
+    max_cloudiness_pct:
+      name: Maximale Bewölkung (%) (optional)
+      description: >
+        Maximale Bewölkung in %, bei der der Rolladen noch herunterfährt.
+        Bis zu diesem Wert wird beschattet. 0%=klar, 100%=bewölkt.
+        Bei höherer Bewölkung wird der Rolladen nicht heruntergefahren.
+        Empfohlen: 20-40% je nach lokalen Bedingungen. (Höhere Werte lassen mehr Licht durch.)
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 5
+          unit_of_measurement: "%"
+
+    active_time_start:
+      name: Aktiv ab (Uhrzeit)
+      description: >
+        Uhrzeit, ab der die Automation aktiv ist (24h-Format).
+        Format: HH:MM:SS (z.B. "06:00:00" für 6 Uhr morgens)
+        Die Automation ist nur zwischen Start- und Endzeit aktiv.
+      default: "06:00:00"
+      selector:
+        time: {}
+
+    active_time_end:
+      name: Aktiv bis (Uhrzeit)
+      description: >
+        Uhrzeit, bis zu der die Automation aktiv ist (24h-Format).
+        Format: HH:MM:SS (z.B. "20:00:00" für 8 Uhr abends)
+        Die Automation ist nur zwischen Start- und Endzeit aktiv.
+      default: "20:00:00"
+      selector:
+        time: {}
+
+    periodic_check_interval:
+      name: Intervall für Wiederholungsprüfung (Minuten)
+      description: >
+        Wie oft die Automation prüft, ob der Rolladen heruntergefahren werden soll (in Minuten).
+        Beispiel: 10 = alle 10 Minuten, 5 = alle 5 Minuten
+        Häufigere Prüfungen = schnellerer Reaktionszeit, aber mehr Systemlast.
+        Empfohlen: 5-15 Minuten.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 60
+          step: 1
+          unit_of_measurement: "min"
+
+    debug_mode:
+      name: Debug-Modus
+      description: >
+        Aktivieren Sie diese Option für zusätzliche Debug-Informationen im Log.
+        Nützlich für die Fehlersuche und zum Verstehen der Automation.
+        Schalten Sie aus, wenn alles funktioniert.
+      default: false
+      selector:
+        boolean: {}
+
+    manual_trigger_mode:
+      name: Bei manueller Ausführung vollständig prüfen?
+      description: >
+        Bei 'Aktionen ausführen' alle Bedingungen prüfen (AN) oder sofort fahren ohne Prüfung (AUS).
+        AUS nützlich für Tests wenn Bedingungen nicht erfüllt sind.
+      default: true
+      selector:
+        boolean: {}
+
+### ────────── ALLGEMEINES ──────────
+mode: single
+max_exceeded: silent
+
+### ────────── VARIABLEN ──────────
+variables:
+  enable_helper: !input enable_boolean
+  target_covers: !input target_cover
+  indoor_sensor: !input indoor_temp
+  outdoor_sensors: !input outdoor_temp_sensors
+  azimuth_sensor: !input azimuth_sensor
+  azimuth_min: !input azimuth_start
+  azimuth_max: !input azimuth_end
+  temp_indoor_limit: !input indoor_threshold
+  temp_outdoor_limit: !input outdoor_threshold
+  shade_pos: !input shade_position
+  cloud_sensor: !input cloudiness_sensor
+  max_cloud_pct: !input max_cloudiness_pct
+  invert_pos: !input invert_position
+  debug_mode: !input debug_mode
+  manual_trigger_mode: !input manual_trigger_mode
+
+  # --- Werte einlesen (mit Validierung) ---
+  indoor_temp_current: >
+    {% set temp = states(indoor_sensor) | float(-999) %}
+    {{ temp if -10 <= temp <= 50 else -999 }}
+
+  outdoor_temps_current: >
+    {% set temps = expand(outdoor_sensors) | selectattr('state','defined')
+       | rejectattr('state','in',['unavailable','unknown','none'])
+       | map(attribute='state') | map('float') 
+       | select('ge',-10) | select('le',60) | list %}
+    {{ temps|max if temps else -999 }}
+
+  azimuth_current: >
+    {% set az = states(azimuth_sensor) | float(-1) %}
+    {{ az if 0 <= az <= 360 else -1 }}
+  cloudiness_current: >
+    {% if cloud_sensor in ('', none, 'none') %} 0
+    {% else %} 
+      {% set cloud = states(cloud_sensor) | float(100) %}
+      {{ cloud if 0 <= cloud <= 100 else 100 }}
+    {% endif %}
+
+  # --- Cover-Liste auflösen (area_id / entity_id / direkte Liste) ---
+  covers_entities: >
+    {% if target_covers is mapping %}
+      {% if target_covers.entity_id is defined %}
+        {{ target_covers.entity_id }}
+      {% elif target_covers.area_id is defined %}
+        {{ area_entities(target_covers.area_id) }}
+      {% else %} [] {% endif %}
+    {% else %}
+      {{ target_covers }}
+    {% endif %}
+
+  positions_list: >
+    {% set covers = expand(covers_entities)
+         | selectattr('attributes.current_position','defined') | list %}
+    {{ covers | map(attribute='attributes.current_position') | map('float') | list }}
+
+  # --- Bool-Flags (optimiert) ---
+  temp_condition: "{{ indoor_temp_current >= temp_indoor_limit or outdoor_temps_current >= temp_outdoor_limit }}"
+
+  # Azimut 360°-Überlauf handhaben
+  azimuth_condition: >
+    {% if azimuth_min <= azimuth_max %}
+      {{ azimuth_min <= azimuth_current <= azimuth_max }}
+    {% else %}
+      {{ azimuth_current >= azimuth_min or azimuth_current <= azimuth_max }}
+    {% endif %}
+
+  cloud_condition: "{{ cloud_sensor in ('', none, 'none') or cloudiness_current < max_cloud_pct }}"
+
+  # Positionsprüfung optimiert (nur bei periodischem Check)
+  positions_check_needed: >
+    {% if trigger.id == 'periodic_check' or (trigger.id == 'manual' and manual_trigger_mode) %}
+      {% set covers = expand(covers_entities) 
+           | selectattr('attributes.current_position','defined') | list %}
+      {% if covers | length == 0 %}
+        true  {# keine Positionsdaten → sicherheitshalber ausführen #}
+      {% else %}
+        {% set target = shade_pos | int %}
+        {% set positions = covers | map(attribute='attributes.current_position') | map('int') | list %}
+        {{ positions | select('gt', target + 5) | list | length > 0 }}
+      {% endif %}
+    {% else %}
+      true  {# Bei Temperatur-/Azimut-Triggers immer ausführen #}
+    {% endif %}
+
+### ────────── TRIGGER ──────────
+trigger:
+  - platform: numeric_state
+    entity_id: !input indoor_temp
+    above: !input indoor_threshold
+    for: { minutes: !input indoor_for }
+    id: indoor_hot
+
+  - platform: numeric_state
+    entity_id: !input outdoor_temp_sensors
+    above: !input outdoor_threshold
+    for: { minutes: !input outdoor_for }
+    id: outdoor_hot
+
+  - platform: numeric_state
+    entity_id: !input azimuth_sensor
+    above: !input azimuth_start
+    id: sun_enters_window
+
+  - platform: time_pattern
+    minutes: "*/{{ periodic_check_interval }}"
+    id: periodic_check
+
+condition: []
+
+### ────────── AKTIONEN ──────────
+action:
+  # --- DEBUG vorab
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ debug_mode }}"
+        sequence:
+          - service: system_log.write
+            data:
+              level: info
+              logger: "automation.rolladen_hitzeschutz"
+              message: |
+                [DEBUG-PRE] Trigger: {{ trigger.id | default('manual') }}
+                -> Innen: {{ indoor_temp_current }}°C (Limit: {{ temp_indoor_limit }}) [{{ 'VALID' if indoor_temp_current > -999 else 'INVALID' }}]
+                -> Außen: {{ outdoor_temps_current }}°C (Limit: {{ temp_outdoor_limit }}) [{{ 'VALID' if outdoor_temps_current > -999 else 'INVALID' }}]
+                -> Azimut: {{ azimuth_current }}° (Fenster: {{ azimuth_min }}–{{ azimuth_max }}) [{{ 'VALID' if azimuth_current >= 0 else 'INVALID' }}]
+                -> Bewölkung: {{ cloudiness_current }} % (Max: {{ max_cloud_pct }})
+                -> Positionen: {{ positions_list }}
+                -> Bedingungen: Temp={{ temp_condition }}, Azimut={{ azimuth_condition }}, Cloud={{ cloud_condition }}, Positions={{ positions_check_needed }}
+
+  # Zeitfenster
+  - condition: time
+    after: !input active_time_start
+    before: !input active_time_end
+
+  # Aktivierungsschalter
+  - condition: template
+    value_template: >
+      {% if enable_helper in ('', none, 'none') %} true
+      {% else %} {{ is_state(enable_helper,'on') }}{% endif %}
+
+  # Sensor-Verfügbarkeit
+  - condition: template
+    value_template: "{{ indoor_temp_current > -999 and outdoor_temps_current > -999 and azimuth_current >= 0 }}"
+
+  # Hauptbedingungen (optimiert mit vorberechneten Variablen)
+  - condition: template
+    value_template: "{{ temp_condition and azimuth_condition and cloud_condition and positions_check_needed }}"
+
+  # Fahrbefehl
+  - service: cover.set_cover_position
+    target: !input target_cover
+    data:
+      position: "{{ (shade_pos if not invert_pos else (100 - shade_pos)) | int }}"
+
+  # --- DEBUG nach Aktion (erfolgreich)
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ debug_mode }}"
+        sequence:
+          - service: system_log.write
+            data:
+              level: info
+              logger: "automation.rolladen_hitzeschutz"
+              message: |
+                [DEBUG-POST] Trigger: {{ trigger.id | default('manual') }}
+                -> Position gesetzt auf {{ (shade_pos if not invert_pos else (100 - shade_pos)) | int }}% 
+                (Input: {{ shade_pos }}%, {{ 'Invertiert' if invert_pos else 'Standard' }})
+
+  # Kurzes Logbook-Event
+  - service: logbook.log
+    data:
+      name: Rolladen Hitzeschutz
+      message: >
+        -> {{ shade_pos }}% ({{ 'Inv' if invert_pos else 'Std' }}) |
+        {{ trigger.id | default('unknown') }} | Innen: {{ indoor_temp_current }}°/Außen: {{ outdoor_temps_current }}° | Azimut: {{ azimuth_current }}°
+        {% if cloud_sensor not in ('', none, 'none') %}| Bewölkung: {{ cloudiness_current }}%{% endif %}
