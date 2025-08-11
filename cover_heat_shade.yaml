@@ -283,7 +283,7 @@ variables:
     {{ covers | map(attribute='attributes.current_position') | map('float') | list }}
 
   # --- Bool-Flags (optimiert) ---
-  temp_condition: "{{ indoor_temp_current >= temp_indoor_limit or outdoor_temps_current >= temp_outdoor_limit }}"
+  temp_condition: "{{ indoor_temp_current >= temp_indoor_limit and outdoor_temps_current >= temp_outdoor_limit }}"
 
   # Azimut 360°-Überlauf handhaben
   azimuth_condition: >
